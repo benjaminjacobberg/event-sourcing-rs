@@ -1,16 +1,26 @@
-use crate::event::envelope::EventEnvelope;
+use crate::Error;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::error::Error;
+
+use crate::event::envelope::EventEnvelope;
+use crate::event::EventType;
 
 #[async_trait::async_trait]
 pub trait EventStore: Sized + Send + Sync + Clone {
-    async fn read<Data: Send + Sync + Clone + Serialize + DeserializeOwned>(
+    // Fetch all events for the aggregate.
+    async fn read<Event: EventType + Serialize + DeserializeOwned>(
         &self,
         aggregate_id: &String,
-    ) -> Result<Vec<EventEnvelope<Data>>, Box<dyn Error + Send + Sync>>;
-    async fn persist<Data: Send + Sync + Clone + Serialize + DeserializeOwned>(
+    ) -> Result<Vec<EventEnvelope<Event>>, Error>;
+    // Fetch all events on and after the specified version for the aggregate.
+    async fn read_from<Event: EventType + Serialize + DeserializeOwned>(
         &self,
-        event_envelope: EventEnvelope<Data>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+        aggregate_id: &String,
+        version: i64,
+    ) -> Result<Vec<EventEnvelope<Event>>, Error>;
+    // Persist the event for the aggregate.
+    async fn persist<Event: EventType + Serialize + DeserializeOwned>(
+        &self,
+        event_envelope: EventEnvelope<Event>,
+    ) -> Result<(), Error>;
 }

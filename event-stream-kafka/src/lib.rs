@@ -1,6 +1,4 @@
-use std::error::Error;
-
-use event_sourcing::event::envelope::{deserialize, EventEnvelope};
+use event_sourcing::Error;
 use kafka::client::{FetchOffset, GroupOffsetStorage};
 use kafka::consumer::{Consumer, MessageSets};
 use retry::delay::Fixed;
@@ -8,19 +6,21 @@ use retry::retry;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use event_sourcing::event::stream::EventStream;
+use event_sourcing::event::envelope::{deserialize, EventEnvelope};
+use event_sourcing::event::EventType;
+use event_sourcing::event::listener::EventListener;
 
 use crate::KafkaEventStreamError::InternalError;
 
 #[derive(Debug, Clone)]
 pub struct KafkaEventStream<Event>
 where
-    Event: Send + Sync + Clone + Serialize + DeserializeOwned,
+    Event: EventType + Serialize + DeserializeOwned,
 {
     pub group: String,
     pub topic: String,
     pub brokers: Vec<String>,
-    pub apply: fn(event: EventEnvelope<Event>) -> Result<(), Box<dyn Error>>,
+    pub apply: fn(event: EventEnvelope<Event>) -> Result<(), Error>,
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -30,11 +30,11 @@ pub(crate) enum KafkaEventStreamError {
 }
 
 #[async_trait::async_trait]
-impl<Event> EventStream for KafkaEventStream<Event>
+impl<Event> EventListener for KafkaEventStream<Event>
 where
-    Event: Send + Sync + Clone + Serialize + DeserializeOwned,
+    Event: EventType + Serialize + DeserializeOwned,
 {
-    async fn start(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn on_event(&self) -> Result<(), Error> {
         retry(Fixed::from_millis(1000), || {
             match Consumer::from_hosts(self.brokers.clone())
                 .with_topic(self.topic.clone())
@@ -53,11 +53,11 @@ where
 
 impl<Event> KafkaEventStream<Event>
 where
-    Event: Send + Sync + Clone + Serialize + DeserializeOwned,
+    Event: EventType + Serialize + DeserializeOwned,
 {
     fn start_consumer(
         mut consumer: Consumer,
-        apply: fn(EventEnvelope<Event>) -> Result<(), Box<dyn Error>>,
+        apply: fn(EventEnvelope<Event>) -> Result<(), Error>,
     ) -> Result<(), KafkaEventStreamError> {
         loop {
             let message_sets: MessageSets = consumer
